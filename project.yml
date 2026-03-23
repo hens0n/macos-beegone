@@ -1,0 +1,29 @@
+name: BeeGone
+options:
+  bundleIdPrefix: com.beegone
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "16.0"
+  minimumXcodeGenVersion: "2.40"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+targets:
+  BeeGone:
+    type: application
+    platform: macOS
+    sources:
+      - BeeGone
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.beegone.app
+        INFOPLIST_FILE: BeeGone/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_ENTITLEMENTS: BeeGone/BeeGone.entitlements
+        ENABLE_HARDENED_RUNTIME: true
+        PRODUCT_NAME: BeeGone
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        COMBINE_HIDPI_IMAGES: true
+        SWIFT_STRICT_CONCURRENCY: complete

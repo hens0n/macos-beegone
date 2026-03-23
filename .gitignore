@@ -1,0 +1,58 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Xcode / Swift build
+*.xcodeproj
+build/
+DerivedData/
+.build/
+.swiftpm/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcworkspace/xcuserdata/
+xcuserdata/
+
+# Build artifacts
+*.app
+*.dmg
+*.zip
+*.pkg
+*.dSYM.zip
+*.dSYM
+
+# Secrets and credentials
+.env
+.env.*
+*.pem
+*.p12
+*.key
+*.keychain
+*.keychain-db
+*.mobileprovision
+*.provisionprofile
+AuthKey_*.p8
+
+# Logs
+*.log
+logs/
+*.crash
+crashlogs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Node (if any tooling uses it)
+node_modules/
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
