@@ -4,10 +4,12 @@ struct FreespaceView: View {
     @State private var volumes: [VolumeInfo] = []
     @State private var isLoading = true
     @State private var isWiping = false
-    @State private var wipeProgress: Double = 0
     @State private var wipeTask: Task<Void, Never>?
+    @State private var loadTask: Task<Void, Never>?
     @State private var wipeLevels: [String: FreespaceLevel] = [:]
     @State private var toast: ToastMessage?
+    @State private var toastTask: Task<Void, Never>?
+    @State private var pendingWipeVolume: VolumeInfo?
 
     var body: some View {
         VStack(spacing: 16) {
@@ -50,17 +52,14 @@ struct FreespaceView: View {
                         .font(.system(size: 13))
                         .foregroundColor(.secondary)
 
-                    ProgressView(value: wipeProgress)
+                    ProgressView()
                         .tint(Color(red: 0.96, green: 0.65, blue: 0.14))
 
                     HStack {
-                        Text("\(Int(wipeProgress * 100))%")
+                        Text("This operation can take a long time and should not be interrupted.")
                             .font(.system(size: 13))
+                            .foregroundColor(.secondary)
                         Spacer()
-                        Button("Cancel") {
-                            wipeTask?.cancel()
-                        }
-                        .buttonStyle(GhostButtonStyle())
                     }
                 }
                 .padding(16)
@@ -79,6 +78,25 @@ struct FreespaceView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: toast != nil)
+        .confirmationDialog(
+            "Confirm Free-Space Wipe",
+            isPresented: Binding(
+                get: { pendingWipeVolume != nil },
+                set: { if !$0 { pendingWipeVolume = nil } }
+            ),
+            presenting: pendingWipeVolume
+        ) { volume in
+            Button("Wipe \(volume.name)", role: .destructive) {
+                startWipe(volume)
+                pendingWipeVolume = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingWipeVolume = nil
+            }
+        } message: { volume in
+            let level = wipeLevels[volume.identifier] ?? .dod
+            Text("This will erase free space on \(volume.name) using \(level.label). It may take a long time and cannot be safely cancelled once started.")
+        }
         .onAppear { loadVolumes() }
     }
 
@@ -122,10 +140,10 @@ struct FreespaceView: View {
                 .frame(width: 170)
 
                 Button("Wipe") {
-                    startWipe(vol)
+                    pendingWipeVolume = vol
                 }
                 .buttonStyle(WipeButtonStyle())
-                .disabled(isWiping)
+                .disabled(isWiping || vol.freeSpace == 0)
             }
         }
         .padding(14)
@@ -146,8 +164,10 @@ struct FreespaceView: View {
 
     private func loadVolumes() {
         isLoading = true
-        Task {
+        loadTask?.cancel()
+        loadTask = Task {
             let vols = VolumeManager.listVolumes()
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 volumes = vols
                 isLoading = false
@@ -156,33 +176,30 @@ struct FreespaceView: View {
     }
 
     private func startWipe(_ vol: VolumeInfo) {
+        guard vol.freeSpace > 0 else {
+            showToast("Selected volume has no free space to wipe.", type: .error)
+            return
+        }
+
         let level = wipeLevels[vol.identifier] ?? .dod
         isWiping = true
-        wipeProgress = 0
 
         wipeTask = Task {
             do {
-                try await FreespaceWiper.wipe(mountPoint: vol.mountPoint, level: level) { pct in
-                    Task { @MainActor in
-                        wipeProgress = pct
-                    }
-                }
+                try await FreespaceWiper.wipe(mountPoint: vol.mountPoint, level: level)
                 await MainActor.run {
                     isWiping = false
-                    wipeProgress = 0
                     showToast("Free space wiped successfully.", type: .success)
                     loadVolumes()
                 }
             } catch is CancellationError {
                 await MainActor.run {
                     isWiping = false
-                    wipeProgress = 0
-                    showToast("Wipe cancelled.", type: .error)
+                    showToast("Wipe was interrupted before completion.", type: .error)
                 }
             } catch {
                 await MainActor.run {
                     isWiping = false
-                    wipeProgress = 0
                     showToast(error.localizedDescription, type: .error)
                 }
             }
@@ -190,9 +207,11 @@ struct FreespaceView: View {
     }
 
     private func showToast(_ message: String, type: ToastType) {
+        toastTask?.cancel()
         toast = ToastMessage(message: message, type: type)
-        Task {
+        toastTask = Task {
             try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
             await MainActor.run { toast = nil }
         }
     }

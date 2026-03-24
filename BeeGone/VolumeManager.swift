@@ -28,12 +28,25 @@ enum VolumeManager {
     }
 
     static func fileSystemType(for path: String) -> String {
-        let volumes = listVolumes()
-        // Find the volume with the longest matching mount point prefix
-        let match = volumes
-            .filter { path.hasPrefix($0.mountPoint) }
+        fileSystemType(for: path, volumes: listVolumes())
+    }
+
+    static func fileSystemType(for path: String, volumes: [VolumeInfo]) -> String {
+        bestVolumeMatch(for: path, in: volumes)?.fileSystem ?? "unknown"
+    }
+
+    static func bestVolumeMatch(for path: String, in volumes: [VolumeInfo]) -> VolumeInfo? {
+        let normalizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+
+        return volumes
+            .filter { volume in
+                let mount = URL(fileURLWithPath: volume.mountPoint).standardizedFileURL.path
+                if mount == "/" {
+                    return true
+                }
+                return normalizedPath == mount || normalizedPath.hasPrefix(mount + "/")
+            }
             .max(by: { $0.mountPoint.count < $1.mountPoint.count })
-        return match?.fileSystem ?? "unknown"
     }
 
     private static func getVolumeIdentifiers() -> [String] {
@@ -45,6 +58,9 @@ enum VolumeManager {
 
         var identifiers: [String] = []
         for disk in disks {
+            if let id = disk["DeviceIdentifier"] as? String {
+                identifiers.append(id)
+            }
             if let partitions = disk["Partitions"] as? [[String: Any]] {
                 for p in partitions {
                     if let id = p["DeviceIdentifier"] as? String { identifiers.append(id) }

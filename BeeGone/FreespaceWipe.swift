@@ -21,52 +21,52 @@ enum FreespaceLevel: Int, CaseIterable, Identifiable {
 }
 
 enum FreespaceWiper {
-    /// Wipes free space on a volume using diskutil secureErase freespace.
-    /// Requires admin privileges — prompts via osascript.
-    static func wipe(
-        mountPoint: String,
-        level: FreespaceLevel,
-        progress: @Sendable (Double) -> Void
-    ) async throws {
-        let command = "/usr/sbin/diskutil secureErase freespace \(level.rawValue) \\\"\(mountPoint)\\\""
+    static func wipe(mountPoint: String, level: FreespaceLevel) async throws {
+        let command = "/usr/sbin/diskutil secureErase freespace \(level.rawValue) \(shellQuoted(mountPoint))"
+        let script = "do shell script \(appleScriptQuoted(command)) with administrator privileges"
 
-        // Use osascript to run with admin privileges (triggers native macOS auth dialog)
         let process = Process()
         let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", "do shell script \"\(command)\" with administrator privileges"]
+        process.arguments = ["-e", script]
         process.standardOutput = pipe
         process.standardError = pipe
 
         try process.run()
 
-        // Read output for progress updates
-        let handle = pipe.fileHandleForReading
-        var buffer = ""
-
-        while process.isRunning {
-            try Task.checkCancellation()
-
-            let data = handle.availableData
-            if data.isEmpty {
-                try await Task.sleep(for: .milliseconds(500))
-                continue
-            }
-
-            buffer += String(data: data, encoding: .utf8) ?? ""
-
-            // diskutil outputs progress like "X% complete"
-            if let range = buffer.range(of: #"(\d+(?:\.\d+)?)%"#, options: .regularExpression) {
-                let match = String(buffer[range]).dropLast() // remove %
-                if let pct = Double(match) {
-                    progress(pct / 100.0)
+        do {
+            try await withTaskCancellationHandler {
+                while process.isRunning {
+                    try Task.checkCancellation()
+                    try await Task.sleep(for: .milliseconds(250))
+                }
+            } onCancel: {
+                if process.isRunning {
+                    process.terminate()
                 }
             }
+        } catch is CancellationError {
+            throw CancellationError()
         }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if process.terminationStatus != 0 {
             throw NSError(domain: "BeeGone", code: Int(process.terminationStatus),
-                          userInfo: [NSLocalizedDescriptionKey: "diskutil secureErase failed (exit \(process.terminationStatus))"])
+                          userInfo: [NSLocalizedDescriptionKey: output?.isEmpty == false
+                                     ? output!
+                                     : "diskutil secureErase failed (exit \(process.terminationStatus))"])
         }
+    }
+
+    private static func shellQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    private static func appleScriptQuoted(_ value: String) -> String {
+        "\"" + value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 }

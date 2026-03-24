@@ -11,6 +11,8 @@ struct SecureDeleteView: View {
     @State private var showApfsWarning = false
     @State private var toast: ToastMessage?
     @State private var isDragOver = false
+    @State private var toastTask: Task<Void, Never>?
+    @State private var apfsTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 16) {
@@ -228,13 +230,30 @@ struct SecureDeleteView: View {
 
     private func addFiles(_ urls: [URL]) {
         let newURLs = urls.filter { url in !files.contains(where: { $0.path == url.path }) }
-        files.append(contentsOf: newURLs)
+        let validURLs = newURLs.filter { url in
+            do {
+                _ = try DeleteTargetValidator.inspect(path: url.path)
+                return true
+            } catch {
+                showToast(error.localizedDescription, type: .error)
+                return false
+            }
+        }
+        files.append(contentsOf: validURLs)
         checkApfs()
     }
 
     private func checkApfs() {
-        showApfsWarning = files.contains { url in
-            VolumeManager.fileSystemType(for: url.path).contains("apfs")
+        apfsTask?.cancel()
+        let paths = files.map(\.path)
+        apfsTask = Task {
+            let volumes = VolumeManager.listVolumes()
+            let hasApfs = paths.contains { path in
+                VolumeManager.fileSystemType(for: path, volumes: volumes).contains("apfs")
+            }
+            await MainActor.run {
+                showApfsWarning = hasApfs
+            }
         }
     }
 
@@ -246,28 +265,46 @@ struct SecureDeleteView: View {
         deleteTask = Task {
             let deleter = SecureDeleter()
             do {
-                let count = try await deleter.deleteFiles(paths: paths, pattern: pattern) { p in
-                    Task { @MainActor in
-                        progress = p
+                let count = try await deleter.deleteFiles(
+                    paths: paths,
+                    pattern: pattern,
+                    didDeletePath: { deletedPath in
+                        Task { @MainActor in
+                            files.removeAll(where: { $0.path == deletedPath })
+                        }
+                    },
+                    progress: { p in
+                        Task { @MainActor in
+                            progress = p
+                        }
                     }
-                }
+                )
                 await MainActor.run {
                     isDeleting = false
-                    files.removeAll()
                     showApfsWarning = false
                     progress = DeleteProgress()
                     showToast("\(count) file(s) securely deleted.", type: .success)
+                }
+            } catch DeleteBatchError.failed(let deletedPaths, let underlying) {
+                await MainActor.run {
+                    isDeleting = false
+                    files.removeAll(where: { deletedPaths.contains($0.path) })
+                    progress = DeleteProgress()
+                    checkApfs()
+                    showToast(underlying.localizedDescription, type: .error)
                 }
             } catch is CancellationError {
                 await MainActor.run {
                     isDeleting = false
                     progress = DeleteProgress()
+                    checkApfs()
                     showToast("Operation cancelled.", type: .error)
                 }
             } catch {
                 await MainActor.run {
                     isDeleting = false
                     progress = DeleteProgress()
+                    checkApfs()
                     showToast(error.localizedDescription, type: .error)
                 }
             }
@@ -277,9 +314,11 @@ struct SecureDeleteView: View {
     // MARK: - Toast
 
     private func showToast(_ message: String, type: ToastType) {
+        toastTask?.cancel()
         toast = ToastMessage(message: message, type: type)
-        Task {
+        toastTask = Task {
             try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
             await MainActor.run { toast = nil }
         }
     }

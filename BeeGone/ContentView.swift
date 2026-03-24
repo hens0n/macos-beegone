@@ -10,16 +10,13 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Custom tab bar
-            HStack(spacing: 4) {
+            Picker("Mode", selection: $selectedTab) {
                 ForEach(AppTab.allCases, id: \.self) { tab in
-                    Button(tab.rawValue) {
-                        selectedTab = tab
-                    }
-                    .buttonStyle(TabButtonStyle(isSelected: selectedTab == tab))
+                    Text(tab.rawValue).tag(tab)
                 }
-                Spacer()
             }
+            .pickerStyle(.segmented)
+            .labelsHidden()
             .padding(.horizontal, 16)
             .padding(.top, 12)
             .padding(.bottom, 8)
@@ -37,19 +34,5 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .init(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)))
         .preferredColorScheme(.dark)
-    }
-}
-
-struct TabButtonStyle: ButtonStyle {
-    let isSelected: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 13, weight: .medium))
-            .foregroundColor(isSelected ? Color(red: 0.96, green: 0.65, blue: 0.14) : .secondary)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 6)
-            .background(isSelected ? Color.white.opacity(0.08) : Color.clear)
-            .cornerRadius(8)
     }
 }

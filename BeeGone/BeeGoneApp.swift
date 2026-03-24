@@ -3,7 +3,7 @@ import SwiftUI
 @main
 struct BeeGoneApp: App {
     var body: some Scene {
-        WindowGroup {
+        Window("BeeGone", id: "main") {
             ContentView()
                 .frame(minWidth: 640, minHeight: 500)
         }
